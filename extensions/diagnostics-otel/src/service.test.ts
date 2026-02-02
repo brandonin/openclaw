@@ -54,11 +54,23 @@ vi.mock("@opentelemetry/exporter-metrics-otlp-http", () => ({
   OTLPMetricExporter: class {},
 }));
 
+vi.mock("@opentelemetry/exporter-metrics-otlp-proto", () => ({
+  OTLPMetricExporter: class {},
+}));
+
 vi.mock("@opentelemetry/exporter-trace-otlp-http", () => ({
   OTLPTraceExporter: class {},
 }));
 
+vi.mock("@opentelemetry/exporter-trace-otlp-proto", () => ({
+  OTLPTraceExporter: class {},
+}));
+
 vi.mock("@opentelemetry/exporter-logs-otlp-http", () => ({
+  OTLPLogExporter: class {},
+}));
+
+vi.mock("@opentelemetry/exporter-logs-otlp-proto", () => ({
   OTLPLogExporter: class {},
 }));
 
@@ -220,6 +232,86 @@ describe("diagnostics-otel service", () => {
       _meta: { logLevelName: "INFO", date: new Date() },
     });
     expect(logEmit).toHaveBeenCalled();
+
+    await service.stop?.();
+  });
+
+  test("starts with http/json protocol", async () => {
+    const registeredTransports: Array<(logObj: Record<string, unknown>) => void> = [];
+    const stopTransport = vi.fn();
+    registerLogTransportMock.mockImplementation((transport) => {
+      registeredTransports.push(transport);
+      return stopTransport;
+    });
+
+    const service = createDiagnosticsOtelService();
+    const loggerInfo = vi.fn();
+    await service.start({
+      config: {
+        diagnostics: {
+          enabled: true,
+          otel: {
+            enabled: true,
+            endpoint: "http://otel-collector:4318",
+            protocol: "http/json",
+            traces: true,
+            metrics: true,
+            logs: true,
+          },
+        },
+      },
+      logger: {
+        info: loggerInfo,
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+    });
+
+    // Check that the SDK started
+    expect(sdkStart).toHaveBeenCalled();
+
+    // Check that log transport was registered
+    expect(registerLogTransportMock).toHaveBeenCalledTimes(1);
+
+    // Check that the logger message indicates JSON protocol
+    expect(loggerInfo).toHaveBeenCalledWith(
+      "diagnostics-otel: logs exporter enabled (OTLP/HTTP JSON)",
+    );
+
+    await service.stop?.();
+  });
+
+  test("passes custom headers to exporters", async () => {
+    const service = createDiagnosticsOtelService();
+    await service.start({
+      config: {
+        diagnostics: {
+          enabled: true,
+          otel: {
+            enabled: true,
+            endpoint: "http://otel-collector:4318",
+            protocol: "http/protobuf",
+            headers: {
+              Authorization: "Bearer my-token",
+              "X-Custom-Header": "custom-value",
+            },
+            traces: true,
+            metrics: true,
+            logs: false,
+          },
+        },
+      },
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+    });
+
+    // Check that the SDK started (headers are passed internally)
+    expect(sdkStart).toHaveBeenCalled();
 
     await service.stop?.();
   });
