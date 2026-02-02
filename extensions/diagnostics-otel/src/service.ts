@@ -1,9 +1,12 @@
 import type { SeverityNumber } from "@opentelemetry/api-logs";
 import type { DiagnosticEventPayload, OpenClawPluginService } from "openclaw/plugin-sdk";
 import { metrics, trace, SpanStatusCode } from "@opentelemetry/api";
-import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { OTLPLogExporter as OTLPLogExporterJson } from "@opentelemetry/exporter-logs-otlp-http";
+import { OTLPLogExporter as OTLPLogExporterProto } from "@opentelemetry/exporter-logs-otlp-proto";
+import { OTLPMetricExporter as OTLPMetricExporterJson } from "@opentelemetry/exporter-metrics-otlp-http";
+import { OTLPMetricExporter as OTLPMetricExporterProto } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter as OTLPTraceExporterJson } from "@opentelemetry/exporter-trace-otlp-http";
+import { OTLPTraceExporter as OTLPTraceExporterProto } from "@opentelemetry/exporter-trace-otlp-proto";
 import { Resource } from "@opentelemetry/resources";
 import { BatchLogRecordProcessor, LoggerProvider } from "@opentelemetry/sdk-logs";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
@@ -55,10 +58,18 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
       }
 
       const protocol = otel.protocol ?? process.env.OTEL_EXPORTER_OTLP_PROTOCOL ?? "http/protobuf";
-      if (protocol !== "http/protobuf") {
+      const useJsonProtocol = protocol === "http/json";
+      if (protocol !== "http/protobuf" && protocol !== "http/json") {
         ctx.logger.warn(`diagnostics-otel: unsupported protocol ${protocol}`);
         return;
       }
+
+      // Select exporter classes based on protocol
+      const OTLPTraceExporter = useJsonProtocol ? OTLPTraceExporterJson : OTLPTraceExporterProto;
+      const OTLPMetricExporter = useJsonProtocol
+        ? OTLPMetricExporterJson
+        : OTLPMetricExporterProto;
+      const OTLPLogExporter = useJsonProtocol ? OTLPLogExporterJson : OTLPLogExporterProto;
 
       const endpoint = normalizeEndpoint(otel.endpoint ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
       const headers = otel.headers ?? undefined;
@@ -614,7 +625,9 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
       });
 
       if (logsEnabled) {
-        ctx.logger.info("diagnostics-otel: logs exporter enabled (OTLP/HTTP)");
+        ctx.logger.info(
+          `diagnostics-otel: logs exporter enabled (${useJsonProtocol ? "OTLP/HTTP JSON" : "OTLP/HTTP Protobuf"})`,
+        );
       }
     },
     async stop() {
